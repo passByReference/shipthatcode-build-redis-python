@@ -25,11 +25,12 @@ def handle_command(args):
     cmd = args[0].upper()
 
     if cmd == "PING":
+        if len(args) > 2:
+            return _encode_error("ERR wrong number of arguments for 'PING' command")
         if len(args) == 1:
             return _encode_simple_string("PONG")
         else:
             return encode_bulk_string(args[1])
-        
     elif cmd == "ECHO":
         if len(args) != 2:
             return _encode_error("ERR wrong number of arguments for 'ECHO' command")
