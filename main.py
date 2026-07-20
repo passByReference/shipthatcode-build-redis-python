@@ -1,21 +1,42 @@
 import sys
 
+def _encode_simple_string(s):
+    """Encode a simple string in RESP format."""
+    return f"+{s}\r\n"
+def _encode_error(msg):
+    """Encode an error message in RESP format."""
+    return f"-{msg}\r\n"
+
+def _encode_integer(n):
+    """Encode an integer in RESP format."""
+    return f":{n}\r\n"
+
+def encode_bulk_string(s):
+    """Encode a bulk string in RESP format."""
+    if s is None:
+        return "$-1\r\n"
+    return f"${len(s)}\r\n{s}\r\n"
+
+def _encode_array(items):
+    return f"*{len(items)}\r\n" + "".join(items)
+
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
     cmd = args[0].upper()
 
     if cmd == "PING":
         if len(args) == 1:
-            return "+PONG\r\n"
+            return _encode_simple_string("PONG")
         else:
-            return f"${len(args[1])}\r\n{args[1]}\r\n"
-        # TODO: Return +PONG\r\n for no args
-        # TODO: Return bulk string for PING <message>
+            return encode_bulk_string(args[1])
+        
     elif cmd == "ECHO":
         if len(args) != 2:
-            return "-ERR wrong number of arguments for 'ECHO' command\r\n"
-        return f"${len(args[1])}\r\n{args[1]}\r\n"
-    return "-ERR unknown command\r\n"
+            return _encode_error("ERR wrong number of arguments for 'ECHO' command")
+        return encode_bulk_string(args[1])
+    elif cmd == "COMMAND":
+        return "+OK\r\n"
+    return _encode_error(f"ERR unknown command '{cmd}'")
 
 def main():
     for line in sys.stdin:
