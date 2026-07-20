@@ -11,7 +11,10 @@ def handle_command(args):
             return f"${len(args[1])}\r\n{args[1]}\r\n"
         # TODO: Return +PONG\r\n for no args
         # TODO: Return bulk string for PING <message>
-
+    elif cmd == "ECHO":
+        if len(args) != 2:
+            return "-ERR wrong number of arguments for 'ECHO' command\r\n"
+        return f"${len(args[1])}\r\n{args[1]}\r\n"
     return "-ERR unknown command\r\n"
 
 def main():
