@@ -1,4 +1,7 @@
+from collections import defaultdict
 import sys
+
+db = defaultdict()
 
 def _encode_simple_string(s):
     """Encode a simple string in RESP format."""
@@ -38,17 +41,18 @@ def handle_command(args):
     elif cmd == "COMMAND":
         return "+OK\r\n"
     elif cmd == "GET":
-        return encode_bulk_string(args[1] if len(args) > 1 else None)
+        return encode_bulk_string(db.get(args[1]) if len(args) > 1 else None)
     elif cmd == "SET":
         if len(args) < 3:
             return _encode_error("ERR wrong number of arguments for 'SET' command")
+        db[args[1]] = args[2]
         return "+OK\r\n"
     return _encode_error(f"ERR unknown command '{cmd}'")
 
 def parse_integer(data: bytes, pos: int):
     crlf = data.find(b'\r\n', pos)
     if crlf == -1:
-        raise ValueError("Invalid integer format")
+        raise ValueError("ERR. No crlf found. Invalid integer format")
     try:
         value = int(data[pos+1:crlf])
     except ValueError:
