@@ -23,7 +23,15 @@ def encode_bulk_string(s):
 
 def _encode_array(items):
     return f"*{len(items)}\r\n" + "".join(items)
-
+def _incr_or_decr_key(key, amount, cmd):
+    if cmd not in ("INCR", "DECR", "INCRBY", "DECRBY"):
+        _encode_error(f"ERR {cmd} is not valid")
+    if key not in db:
+            db[key] = "0"
+    
+    db[key] = str(int(db[key]) + int(amount)) if "INCR" in cmd else str(int(db[key]) - int(amount))
+    return db[key]
+    
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
     cmd = args[0].upper()
@@ -60,12 +68,31 @@ def handle_command(args):
         return "+OK\r\n"
     elif cmd == "DBSIZE":
         return _encode_integer(len(db))
-    
+    elif cmd == "INCRBY" or cmd == "DECRBY":
+        if len(args) != 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        amount = args[2]
+        try:
+            new_val = _incr_or_decr_key(key, amount, cmd)
+            return _encode_integer(new_val)
+        except Exception:
+            return _encode_error("ERR value is not an integer or out of range")
+        
+    elif cmd == "INCR" or cmd == "DECR":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        try:
+            new_val = _incr_or_decr_key(key, 1, cmd)
+            return _encode_integer(new_val)
+        except Exception:
+            return _encode_error("ERR value is not an integer or out of range")
+
     return _encode_error(f"ERR unknown command '{cmd}'")
 
 
 def main():
-    
     for line in sys.stdin:
         line = line.strip()
         if not line:
