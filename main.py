@@ -1,5 +1,6 @@
 from collections import defaultdict
 import sys
+import binary_parser
 
 db = defaultdict()
 
@@ -49,60 +50,35 @@ def handle_command(args):
         return "+OK\r\n"
     return _encode_error(f"ERR unknown command '{cmd}'")
 
-def parse_integer(data: bytes, pos: int):
-    crlf = data.find(b'\r\n', pos)
-    if crlf == -1:
-        raise ValueError("ERR. No crlf found. Invalid integer format")
-    try:
-        value = int(data[pos+1:crlf])
-    except ValueError:
-        raise ValueError("Invalid integer format")
-    return value, crlf + 2  # skip \r\n   
-
-def binary_parse(data:bytes, start: int):
-    if data[start] != ord('*'):
-        raise ValueError("Invalid RESP array format")
-    n, pos = parse_integer(data, start)
-    args = []
-    for _ in range(n):
-        if pos >= len(data) or data[pos] != ord('$'):
-            raise ValueError("Invalid RESP bulk string format")
-        length, pos = parse_integer(data, pos)
-        if length == -1:
-            args.append(None)
-            continue
-        if pos + length + 2 > len(data):
-            raise ValueError("Not enough data for bulk string")
-        bulk_string = data[pos:pos + length].decode('utf-8')
-        args.append(bulk_string)
-        pos += length + 2  # skip the bulk string and \r\n
-    return args, pos
 
 def main():
-    data = sys.stdin.buffer.read()
-    if not data:
-        return
-    pos = 0
-    out = sys.stdout.buffer
-    while pos < len(data):
-        try:
-            args, pos = binary_parse(data, pos)
-            response = handle_command(args)
-            out.write(response.encode('utf-8'))
-            out.flush()
-        except ValueError as e:
-            out.write(_encode_error(str(e)).encode('utf-8'))
-            out.flush()
-            break  # Stop processing on error
-    # for line in sys.stdin:
-    #     line = line.strip()
-    #     if not line:
-    #         continue
     
-    #     args = parse_args(line)
-    #     response = handle_command(args)
-    #     sys.stdout.write(response)
-    #     sys.stdout.flush()
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+    
+        args = parse_args(line)
+        response = handle_command(args)
+        sys.stdout.write(response)
+        sys.stdout.flush()
+    
+    ### Binary parser below ####
+    # data = sys.stdin.buffer.read()
+    # if not data:
+    #     return
+    # pos = 0
+    # out = sys.stdout.buffer
+    # while pos < len(data):
+    #     try:
+    #         args, pos = binary_parser.binary_parse(data, pos)
+    #         response = handle_command(args)
+    #         out.write(response.encode('utf-8'))
+    #         out.flush()
+    #     except ValueError as e:
+    #         out.write(_encode_error(str(e)).encode('utf-8'))
+    #         out.flush()
+    #         break  # Stop processing on error
 
 
 def parse_args(line):
