@@ -46,7 +46,17 @@ def handle_command(args):
     elif cmd == "SET":
         if len(args) < 3:
             return _encode_error("ERR wrong number of arguments for 'SET' command")
-        db[args[1]] = args[2]
+        key = args[1]
+        val = args[2]
+        if len(args) > 3:
+            cond = args[3].upper()
+            if cond == "NX":
+                if key in db:
+                    return "$-1\r\n"
+            elif cond == "XX":
+                if key not in db:
+                    return "$-1\r\n"
+        db[key] = val
         return "+OK\r\n"
     elif cmd == "DBSIZE":
         return _encode_integer(len(db))
