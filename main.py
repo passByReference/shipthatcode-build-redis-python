@@ -48,6 +48,9 @@ def handle_command(args):
             return _encode_error("ERR wrong number of arguments for 'SET' command")
         db[args[1]] = args[2]
         return "+OK\r\n"
+    elif cmd == "DBSIZE":
+        return _encode_integer(len(db))
+    
     return _encode_error(f"ERR unknown command '{cmd}'")
 
 
