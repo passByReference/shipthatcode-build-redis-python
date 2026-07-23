@@ -1,4 +1,5 @@
 from collections import defaultdict
+import re
 import sys
 import binary_parser
 
@@ -33,7 +34,15 @@ def _incr_or_decr_key(key, amount, cmd):
     
     db[key] = str(int(db[key]) + int(amount)) if "INCR" in cmd else str(int(db[key]) - int(amount))
     return db[key]
-    
+
+def _check_expiry(key):
+    global clock
+    return key in expiry_times and expiry_times[key] <= clock     
+def _remove_expired_key(key):
+    if _check_expiry(key):
+        del db[key]
+        del expiry_times[key]
+
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
     global clock
@@ -52,8 +61,18 @@ def handle_command(args):
         return encode_bulk_string(args[1])
     elif cmd == "COMMAND":
         return "+OK\r\n"
+    elif cmd == "EXISTS":
+        if len(args) != 2:
+            return _encode_error("ERR wrong number of arguments for 'EXISTS' command")
+        key = args[1]
+        _remove_expired_key(key)
+        return _encode_integer(1 if key in db else 0)
     elif cmd == "GET":
-        return encode_bulk_string(db.get(args[1]) if len(args) > 1 else None)
+        if len(args) != 2:
+            return _encode_error("ERR wrong number of arguments for 'GET' command")
+        key = args[1]
+        _remove_expired_key(key)
+        return encode_bulk_string(db.get(key) if len(args) > 1 else None)
     elif cmd == "SET":
         if len(args) < 3:
             return _encode_error("ERR wrong number of arguments for 'SET' command")
@@ -159,13 +178,11 @@ def handle_command(args):
         if key not in db:
             return _encode_integer(-2)
         if key in expiry_times:
-            if expiry_times[key] - clock <= 0:
-                del db[key]
-                del expiry_times[key]
+            if _check_expiry(key):
+                _remove_expired_key(key)
                 return _encode_integer(-2)
             return _encode_integer(expiry_times[key] - clock if cmd == "TTL" else int(expiry_times[key] - clock) * 1000)
         return _encode_integer(-1)
-    
     elif cmd == "PERSIST":
         if len(args) != 2:
             return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
