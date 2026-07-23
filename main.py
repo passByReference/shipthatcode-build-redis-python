@@ -59,7 +59,8 @@ def handle_command(args):
             return _encode_error("ERR wrong number of arguments for 'SET' command")
         key = args[1]
         val = args[2]
-        if len(args) > 3:
+        if len(args) == 4:
+            # only NX|XX is allowed as the 4th argument
             cond = args[3].upper()
             if cond == "NX":
                 if key in db:
@@ -67,6 +68,54 @@ def handle_command(args):
             elif cond == "XX":
                 if key not in db:
                     return "$-1\r\n"
+        if len(args) > 4:
+            # parse optional arguments NX, XX, EX, PX
+            nx = False
+            xx = False
+            ex = None
+            px = None
+            i = 3 
+            while i < len(args):
+                arg = args[i].upper()
+                if arg == "NX":
+                    nx = True
+                    i += 1
+                elif arg == "XX":
+                    xx = True
+                    i += 1
+                elif arg == "EX":
+                    if i + 1 >= len(args):
+                        return _encode_error("ERR syntax error")
+                    try:
+                        ex = int(args[i + 1])
+                        if ex <= 0:
+                            return _encode_error("ERR invalid expire time in 'SET' command")
+                    except ValueError:
+                        return _encode_error("ERR invalid expire time in 'SET' command")
+                    i += 2
+                elif arg == "PX":
+                    if i + 1 >= len(args):
+                        return _encode_error("ERR syntax error")     
+                    try:
+                        px = int(args[i + 1])
+                        if px <= 0:
+                            return _encode_error("ERR invalid expire time in 'SET' command")
+                    except ValueError:
+                        return _encode_error("ERR invalid expire time in 'SET' command")
+                    i += 2
+            if ex is not None and px is not None:
+                return _encode_error("ERR syntax error")
+            if nx and xx:
+                return _encode_error("ERR syntax error")
+            if nx and key in db:
+                return "$-1\r\n"
+            if xx and key not in db:
+                return "$-1\r\n"
+            if ex:
+                expiry_times[key] = clock + ex
+            elif px:
+                expiry_times[key] = clock + px / 1000
+         
         db[key] = val
         return "+OK\r\n"
     elif cmd == "DBSIZE":
@@ -99,11 +148,11 @@ def handle_command(args):
         if key not in db:
             return _encode_integer(0)
         try:
-            expiry_times[key] = int(ttl_seconds)
+            expiry_times[key] = clock + int(ttl_seconds)
         except Exception:
             return _encode_error(f"ERR {ttl_seconds} is not an integer or out of range")
         return _encode_integer(1)
-    elif cmd == "TTL":
+    elif cmd == "TTL" or cmd == "PTTL":
         if len(args) != 2:
             return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
         key = args[1]
@@ -114,8 +163,9 @@ def handle_command(args):
                 del db[key]
                 del expiry_times[key]
                 return _encode_integer(-2)
-            return _encode_integer(expiry_times[key] - clock)
+            return _encode_integer(expiry_times[key] - clock if cmd == "TTL" else int(expiry_times[key] - clock) * 1000)
         return _encode_integer(-1)
+    
     elif cmd == "PERSIST":
         if len(args) != 2:
             return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
