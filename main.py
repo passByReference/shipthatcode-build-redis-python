@@ -3,6 +3,8 @@ import sys
 import binary_parser
 
 db = defaultdict()
+expiry_times = defaultdict()
+clock = 0
 
 def _encode_simple_string(s):
     """Encode a simple string in RESP format."""
@@ -34,6 +36,7 @@ def _incr_or_decr_key(key, amount, cmd):
     
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
+    global clock
     cmd = args[0].upper()
 
     if cmd == "PING":
@@ -88,6 +91,53 @@ def handle_command(args):
             return _encode_integer(new_val)
         except Exception:
             return _encode_error("ERR value is not an integer or out of range")
+    elif cmd == "EXPIRE":
+        if len(args) != 3:
+            return _encode_error(f"ERR wrong number of aruguments for '{cmd}' command")
+        key = args[1]
+        ttl_seconds = args[2]
+        if key not in db:
+            return _encode_integer(0)
+        try:
+            expiry_times[key] = int(ttl_seconds)
+        except Exception:
+            return _encode_error(f"ERR {ttl_seconds} is not an integer or out of range")
+        return _encode_integer(1)
+    elif cmd == "TTL":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        if key not in db:
+            return _encode_integer(-2)
+        if key in expiry_times:
+            if expiry_times[key] - clock <= 0:
+                del db[key]
+                del expiry_times[key]
+                return _encode_integer(-2)
+            return _encode_integer(expiry_times[key] - clock)
+        return _encode_integer(-1)
+    elif cmd == "PERSIST":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        if key not in expiry_times:
+            return _encode_integer(0)
+        del expiry_times[key]
+        return _encode_integer(1)
+    elif cmd == "WAIT":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        try:
+            n = int(args[1])
+            if n < 0:
+                return _encode_error(f"ERR {n} is not a valid integer")
+            clock += n / 1000
+        except Exception:
+            return _encode_error(f"ERR {args[1]} is not a valid integer")
+        return _encode_simple_string("OK")
+        
+        
+
 
     return _encode_error(f"ERR unknown command '{cmd}'")
 
