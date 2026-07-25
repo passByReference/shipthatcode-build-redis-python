@@ -1,9 +1,10 @@
-from collections import defaultdict
+from collections import defaultdict,deque
 import re
 import sys
 import binary_parser
 
 db = defaultdict()
+lists = defaultdict(deque)
 expiry_times = defaultdict()
 clock = 0
 
@@ -42,6 +43,40 @@ def _remove_expired_key(key):
     if _check_expiry(key):
         del db[key]
         del expiry_times[key]
+
+def check_type(key):
+    if key in db:
+        return False
+    return True
+
+def normalize_index(index, length):
+    if index < 0:
+        index += length
+    return index
+
+def lpush(key, values):
+    if not check_type(key):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    for value in values:
+        lists[key].appendleft(value)
+    return _encode_integer(len(lists[key]))
+def rpush(key, values):
+    if not check_type(key):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    for value in values:
+        lists[key].append(value)
+    return _encode_integer(len(lists[key]))
+
+def lrange(key, start, stop):
+    dq = lists.get(key, deque())
+    length = len(dq)
+    start = normalize_index(start, length)
+    stop = normalize_index(stop, length)
+    start = max(start, 0)
+    stop = min(stop, length - 1)
+    if length == 0:
+        return []
+    return list(dq)[start:stop+1] if stop < length else list(dq)[start:length]
 
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
@@ -202,10 +237,29 @@ def handle_command(args):
         except Exception:
             return _encode_error(f"ERR {args[1]} is not a valid integer")
         return _encode_simple_string("OK")
-        
-        
-
-
+    elif cmd == "LPUSH":
+        if len(args) < 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        values = args[2:]
+        return lpush(key, values)
+    elif cmd == "RPUSH":
+        if len(args) < 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        values = args[2:]
+        return rpush(key, values)
+    elif cmd == "LRANGE":
+        if len(args) != 4:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        try:
+            start = int(args[2])
+            stop = int(args[3])
+        except Exception:
+            return _encode_error(f"ERR {args[2]} or {args[3]} is not a valid integer")
+        result = lrange(key, start, stop)
+        return _encode_array([encode_bulk_string(item) for item in result])
     return _encode_error(f"ERR unknown command '{cmd}'")
 
 
