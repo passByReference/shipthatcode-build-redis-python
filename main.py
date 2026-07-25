@@ -19,7 +19,7 @@ def _encode_integer(n):
     """Encode an integer in RESP format."""
     return f":{n}\r\n"
 
-def encode_bulk_string(s):
+def _encode_bulk_string(s):
     """Encode a bulk string in RESP format."""
     if s is None:
         return "$-1\r\n"
@@ -67,6 +67,27 @@ def rpush(key, values):
         lists[key].append(value)
     return _encode_integer(len(lists[key]))
 
+def lpop(key):
+    if not check_type(key):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    if key not in lists:
+        return None
+    value = lists[key].popleft()
+    if not lists[key]:
+        del lists[key]
+    return value
+def rpop(key):
+    if not check_type(key):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    if key not in lists:
+        return None
+    value = lists[key].pop()
+    if not lists[key]:
+        del lists[key]
+    return value
+def llen(key):
+    return len(lists.get(key, ()))
+
 def lrange(key, start, stop):
     dq = lists.get(key, deque())
     length = len(dq)
@@ -89,11 +110,11 @@ def handle_command(args):
         if len(args) == 1:
             return _encode_simple_string("PONG")
         else:
-            return encode_bulk_string(args[1])
+            return _encode_bulk_string(args[1])
     elif cmd == "ECHO":
         if len(args) != 2:
             return _encode_error("ERR wrong number of arguments for 'ECHO' command")
-        return encode_bulk_string(args[1])
+        return _encode_bulk_string(args[1])
     elif cmd == "COMMAND":
         return "+OK\r\n"
     elif cmd == "EXISTS":
@@ -107,7 +128,7 @@ def handle_command(args):
             return _encode_error("ERR wrong number of arguments for 'GET' command")
         key = args[1]
         _remove_expired_key(key)
-        return encode_bulk_string(db.get(key) if len(args) > 1 else None)
+        return _encode_bulk_string(db.get(key) if len(args) > 1 else None)
     elif cmd == "SET":
         if len(args) < 3:
             return _encode_error("ERR wrong number of arguments for 'SET' command")
@@ -249,6 +270,24 @@ def handle_command(args):
         key = args[1]
         values = args[2:]
         return rpush(key, values)
+    elif cmd == "LPOP":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        value = lpop(key)
+        return _encode_bulk_string(value)
+    elif cmd == "RPOP":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        value = rpop(key)
+        return _encode_bulk_string(value)
+    elif cmd == "LLEN":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        length = llen(key)
+        return _encode_integer(length)
     elif cmd == "LRANGE":
         if len(args) != 4:
             return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
@@ -259,7 +298,7 @@ def handle_command(args):
         except Exception:
             return _encode_error(f"ERR {args[2]} or {args[3]} is not a valid integer")
         result = lrange(key, start, stop)
-        return _encode_array([encode_bulk_string(item) for item in result])
+        return _encode_array([_encode_bulk_string(item) for item in result])
     return _encode_error(f"ERR unknown command '{cmd}'")
 
 
