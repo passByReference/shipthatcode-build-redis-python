@@ -5,7 +5,12 @@ import binary_parser
 
 db = defaultdict()
 lists = defaultdict(deque)
+hashes = defaultdict(dict)
 expiry_times = defaultdict()
+existing_types = defaultdict()
+existing_types['string'] = db
+existing_types['list'] = lists
+existing_types['hash'] = hashes
 clock = 0
 
 def _encode_simple_string(s):
@@ -44,9 +49,12 @@ def _remove_expired_key(key):
         del db[key]
         del expiry_times[key]
 
-def check_type(key):
-    if key in db:
-        return False
+def check_type(key, type_in_use=None):
+    for type_name, type_dict in existing_types.items():
+        if type_name == type_in_use:
+            continue
+        if key in type_dict:
+            return False
     return True
 
 def normalize_index(index, length):
@@ -55,20 +63,20 @@ def normalize_index(index, length):
     return index
 
 def lpush(key, values):
-    if not check_type(key):
+    if not check_type(key, "list"):
         return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
     for value in values:
         lists[key].appendleft(value)
     return _encode_integer(len(lists[key]))
 def rpush(key, values):
-    if not check_type(key):
+    if not check_type(key, "list"):
         return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
     for value in values:
         lists[key].append(value)
     return _encode_integer(len(lists[key]))
 
 def lpop(key):
-    if not check_type(key):
+    if not check_type(key, "list"):
         return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
     if key not in lists:
         return None
@@ -77,7 +85,7 @@ def lpop(key):
         del lists[key]
     return value
 def rpop(key):
-    if not check_type(key):
+    if not check_type(key, "list"):
         return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
     if key not in lists:
         return None
@@ -98,6 +106,20 @@ def lrange(key, start, stop):
     if length == 0:
         return []
     return list(dq)[start:stop+1] if stop < length else list(dq)[start:length]
+def hset(key, pairs):
+    if not check_type(key, "hash"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    count = 0
+    for field, value in pairs.items():
+        if field not in hashes[key]:
+            count += 1
+        hashes[key][field] = value
+    return count
+
+def hget(key, field):
+    if not check_type(key, "hash"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    return hashes[key].get(field, None)
 
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
@@ -299,6 +321,21 @@ def handle_command(args):
             return _encode_error(f"ERR {args[2]} or {args[3]} is not a valid integer")
         result = lrange(key, start, stop)
         return _encode_array([_encode_bulk_string(item) for item in result])
+    elif cmd == "HSET":
+        if len(args) < 4 or len(args) % 2 != 0:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        pairs = dict(zip(args[2::2], args[3::2]))
+        count = hset(key, pairs)
+        return _encode_integer(count)
+    elif cmd == "HGET":
+        if len(args) != 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        field = args[2]
+        value = hget(key, field)
+        return _encode_bulk_string(value)
+
     return _encode_error(f"ERR unknown command '{cmd}'")
 
 
