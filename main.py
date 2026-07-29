@@ -121,6 +121,37 @@ def hget(key, field):
         return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
     return hashes[key].get(field, None)
 
+def hdel(key, fields):
+    if not check_type(key, "hash"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    count = 0
+    for field in fields:
+        if field in hashes[key]:
+            del hashes[key][field]
+            count += 1
+    if not hashes[key]:
+        del hashes[key]
+    return count
+
+def hgetall(key):
+    if not check_type(key, "hash"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    result = []
+    for field, value in hashes[key].items():
+        result.append(field)
+        result.append(value)
+    return result
+
+def hexists(key, field):
+    if not check_type(key, "hash"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    return 1 if field in hashes[key] else 0
+
+def hlen(key):
+    if not check_type(key, "hash"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    return len(hashes[key])
+
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
     global clock
@@ -335,6 +366,32 @@ def handle_command(args):
         field = args[2]
         value = hget(key, field)
         return _encode_bulk_string(value)
+    elif cmd == "HDEL":
+        if len(args) < 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        fields = args[2:]
+        count = hdel(key, fields)
+        return _encode_integer(count)
+    elif cmd == "HGETALL":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        return _encode_array([_encode_bulk_string(item) for item in hgetall(key)])
+    elif cmd == "HEXISTS":
+        if len(args) != 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        field = args[2]
+        exists = hexists(key, field)
+        return _encode_integer(exists)
+    elif cmd == "HLEN":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        length = hlen(key)
+        return _encode_integer(length)
+        
 
     return _encode_error(f"ERR unknown command '{cmd}'")
 
