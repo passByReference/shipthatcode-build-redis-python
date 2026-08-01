@@ -8,9 +8,11 @@ lists = defaultdict(deque)
 hashes = defaultdict(dict)
 expiry_times = defaultdict()
 existing_types = defaultdict()
+sets = defaultdict(set)
 existing_types['string'] = db
 existing_types['list'] = lists
 existing_types['hash'] = hashes
+existing_types['set'] = sets
 clock = 0
 
 def _encode_simple_string(s):
@@ -152,6 +154,44 @@ def hlen(key):
         return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
     return len(hashes[key])
 
+def sadd(key, members):
+    if not check_type(key, "set"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    count = 0
+    for member in members:
+        if member not in sets[key]:
+            sets[key].add(member)
+            count += 1
+    return count
+
+def smem(key):
+    if not check_type(key, "set"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    return list(sets[key])
+
+def sismember(key, member):
+    if not check_type(key, "set"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    return 1 if member in sets[key] else 0
+
+def scard(key):
+    if not check_type(key, "set"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    return len(sets[key])
+
+def srem(key, members):
+    if not check_type(key, "set"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    count = 0
+    for member in members:
+        if member in sets[key]:
+            sets[key].remove(member)
+            count += 1
+    if not sets[key]:
+        del sets[key]
+    return count
+
+   
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
     global clock
@@ -391,8 +431,39 @@ def handle_command(args):
         key = args[1]
         length = hlen(key)
         return _encode_integer(length)
-        
-
+    elif cmd == "SADD":
+        if len(args) < 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        members = args[2:]
+        count = sadd(key, members)
+        return _encode_integer(count)
+    elif cmd == "SMEMBERS":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        members = smem(key)
+        return _encode_array([_encode_bulk_string(member) for member in members])
+    elif cmd == "SISMEMBER":
+        if len(args) != 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        member = args[2]
+        is_member = sismember(key, member)
+        return _encode_integer(is_member)
+    elif cmd == "SCARD":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        count = scard(key)
+        return _encode_integer(count)
+    elif cmd == "SREM":
+        if len(args) < 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        members = args[2:]
+        count = srem(key, members)
+        return _encode_integer(count)
     return _encode_error(f"ERR unknown command '{cmd}'")
 
 
