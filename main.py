@@ -9,10 +9,12 @@ hashes = defaultdict(dict)
 expiry_times = defaultdict()
 existing_types = defaultdict()
 sets = defaultdict(set)
+zset = defaultdict(dict)
 existing_types['string'] = db
 existing_types['list'] = lists
 existing_types['hash'] = hashes
 existing_types['set'] = sets
+existing_types['zset'] = zset
 clock = 0
 
 def _encode_simple_string(s):
@@ -191,6 +193,43 @@ def srem(key, members):
         del sets[key]
     return count
 
+def zadd(key, pairs):
+    if not check_type(key, "zset"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    count = 0
+    for score, member in pairs.items():
+        if member not in zset[key]:
+            count += 1
+        zset[key][member] = int(score)
+    return count
+
+def zscoe(key, member):
+    if not check_type(key, "zset"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    return zset[key].get(member, None)
+
+def zrange(key, start, stop):
+    if not check_type(key, "zset"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    sorted_members = sorted(zset[key].items(), key=lambda x: x[1])
+    length = len(sorted_members)
+    # this is key point - normalization
+    start = normalize_index(start, length)
+    stop = normalize_index(stop, length)
+    start = max(start, 0)
+    stop = min(stop, length - 1)
+    if length == 0:
+        return []
+    return [member for member, score in sorted_members[start:stop+1]]
+
+def zrank(key, member):
+    if not check_type(key, "zset"):
+        return _encode_error("WRONGTYPE Operation against a key holding the wrong kind of value")
+    sorted_members = sorted(zset[key].items(), key=lambda x: x[1])
+    for index, (m, score) in enumerate(sorted_members):
+        if m == member:
+            return index
+    return None
    
 def handle_command(args):
     """Process a Redis command and return the RESP response."""
@@ -464,6 +503,57 @@ def handle_command(args):
         members = args[2:]
         count = srem(key, members)
         return _encode_integer(count)
+    elif cmd == "ZADD":
+        if len(args) < 4 or len(args) % 2 != 0:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        pairs = dict(zip(args[2::2], args[3::2]))
+        try:
+            count = zadd(key, pairs)
+            return _encode_integer(count)
+        except Exception:
+            return _encode_error("ERR score is not a valid float")
+    elif cmd == "ZSCORE":
+        if len(args) != 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        member = args[2]
+        score = zscoe(key, member)
+        return _encode_bulk_string(str(score) if score else None)
+    elif cmd == "ZRANGE":
+        if len(args) > 5 or len(args) < 4:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        try:
+            start = int(args[2])
+            stop = int(args[3])
+            with_scores = len(args) == 5 and args[4].upper() == "WITHSCORES"
+        except Exception:
+            return _encode_error(f"ERR {args[2]} or {args[3]} is not a valid integer")
+        result = zrange(key, start, stop)
+        if with_scores:
+            result_with_scores = []
+            for member in result:
+                score = zset[key][member]
+                result_with_scores.append(member)
+                result_with_scores.append(str(score))
+            return _encode_array([_encode_bulk_string(item) for item in result_with_scores])
+        else:
+            return _encode_array([_encode_bulk_string(item) for item in result])
+    elif cmd == "ZRANK":
+        if len(args) != 3:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        member = args[2]
+        rank = zrank(key, member)
+        return _encode_integer(rank if rank is not None else None)
+    elif cmd == "ZCARD":
+        if len(args) != 2:
+            return _encode_error(f"ERR wrong number of arguments for '{cmd}' command")
+        key = args[1]
+        count = len(zset[key]) if key in zset else 0
+        return _encode_integer(count)
+     
     return _encode_error(f"ERR unknown command '{cmd}'")
 
 
